@@ -1,0 +1,9 @@
+{
+    "name" : "redis-sentinel",
+    "main" : "./index.js",
+    "version":"0.0.0",
+    "dependencies":{
+        "redis":"*",
+        "underscore": "*"
+    }
+}
