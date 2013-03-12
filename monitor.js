@@ -23,7 +23,7 @@ function Monitor( options ) {
 
     var defaults = {
         host: 'localhost',
-        ports: [26379]
+        ports: [23679]
     }
     var settings = {};
 
