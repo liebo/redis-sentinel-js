@@ -11,11 +11,8 @@ define([], function () {
     })();
 });
     */
+
+var NegotiatorClient = require("./negotiator_client.js");
 var Monitor = require("./monitor.js");
 
-module.exports = function (options) {
-    return new Monitor(options);
-}
-
-
-// exports.Monitor = Monitor;
+exports.Monitor = Monitor;
