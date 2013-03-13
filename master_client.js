@@ -1,55 +1,43 @@
-// TODO: Replace multi so we dont end up throwing away callbacks
-// alternatively, store callbacks for when we exec multi
 var net = require('net');
 var redis = require('redis');
+var CommandQueue = require('./command_queue.js');
 
-module.exports = NegotiatorClient;
+module.exports = MasterClient;
 // Since this is an eventer, maybe use events to determine whether it enters failsafe
-function NegotiatorClient(master_name, master_port, master_host, slaves) {
+function MasterClient(master_name, master_port, master_host, slaves, timeout) {
 
     var self = this;
     this.name = master_name;
+    this.failover_timeout = timeout;
 
-    /*
-    this.enter_failsafe_state = enter_failsafe_state;
-    this.exit_failsafe_state = exit_failsafe_state;
-    this.connect_to_valid_slave = connect_to_valid_slave;
-    this.connect_to_redis_instance = connect_to_redis_instance;
-    this.super_send_command = redis.RedisClient.prototype.send_command;
-    this.send_command = send_negotiated_command;
-    */
-
-    NegotiatorClient.prototype.connect_to_redis_instance.call( this, master_port, master_host );
+    MasterClient.prototype.connect_to_redis_instance.call(this, master_port, master_host );
 
 }
 
-NegotiatorClient.prototype.__proto__ = redis.RedisClient.prototype;
+MasterClient.prototype.__proto__ = redis.RedisClient.prototype;
 
-NegotiatorClient.prototype.enter_failsafe_state = function() {
+MasterClient.prototype.enter_failsafe_state = function() {
     var self = this;
-    console.info('ENTERING FAILSAFE STATE FOR: ', self.name);
-    if (self.pipeline) return;
-    // gets connection to arbitrary slave.  need to make sure slave works for reads. 
+    if (self.cq) return;
     self.connect_to_valid_slave();
-    self.pipeline = self.multi();
+    self.cq = new CommandQueue(self, self.failover_timeout);
 }
 
-NegotiatorClient.prototype.exit_failsafe_state = function(new_master_config) {
+MasterClient.prototype.exit_failsafe_state = function(new_master_config) {
     var self = this;
-    console.info('exiting failsage state');
-    if (!self.pipeline) return;
+    if (!self.cq) return;
 
     new_master_config = new_master_config || {port: master_port, host: master_host};
     self.connect_to_redis_instance( new_master_config.port, new_master_config.host );
-    pipeline.exec( function(error, responses) {
+    cq.exec( function(error, responses) {
         if (!error) {
-            delete self.pipeline;
+            delete self.cq;
             self.failsafe_state = '';
         }
     });
 }
 
-NegotiatorClient.prototype.connect_to_valid_slave = function(num_trials, next) {
+MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
     var self = this;
     self.failsafe_state = 'rw';
     num_trials = num_trials || 0;
@@ -67,27 +55,27 @@ NegotiatorClient.prototype.connect_to_valid_slave = function(num_trials, next) {
     next();
 }
 
-NegotiatorClient.prototype.connect_to_redis_instance = function( port, host ) {
+MasterClient.prototype.connect_to_redis_instance = function( port, host ) {
     var net_client = net.createConnection(port, host);
     redis.RedisClient.call(this, net_client); // has potential options arg which currently isnt in use
 
 }
 
-NegotiatorClient.prototype.send_negotiated_command = function(command, args, next, trials) {
+MasterClient.prototype.send_negotiated_command = function(command, args, next, trials) {
     console.info('negotiated command args: ', command, args);
     trials = trials || 0;
     if (typeof next != 'function') next = function(){};
 
-    if (this.pipeline) this.send_command_with_failsafe(command, args, next, trials);
+    if (this.cq) this.send_command_with_failsafe(command, args, next, trials);
     else this.send_command_without_failsafe(command, args, next, trials);
 
 }
 
-NegotiatorClient.prototype.send_command_with_failsafe = function(command, args, next, trials) {
+MasterClient.prototype.send_command_with_failsafe = function(command, args, next, trials) {
     var self = this;
     console.info('sending command with failsafe');
     if (is_write_command(command) || self.failsafe_state == 'rw')
-        return self.pipeline[command](args, next);
+        return self.cq[command](args, next);
 
     self.super_send_command(command, args, function(error, response) {
         if (error) connect_to_valid_slave( 0, function() {
@@ -97,7 +85,7 @@ NegotiatorClient.prototype.send_command_with_failsafe = function(command, args, 
     });
 }
 
-NegotiatorClient.prototype.send_command_without_failsafe = function(command, args, next, trials) {
+MasterClient.prototype.send_command_without_failsafe = function(command, args, next, trials) {
     console.info('sending command without failsafe');
     var self = this;
     self.super_send_command(command, args, function( error, response ) {
