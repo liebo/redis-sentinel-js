@@ -26,12 +26,13 @@ function Monitor( options ) {
     var defaults = {
         host: 'localhost',
         ports: [23679],
-        timeout: 5000
+        failover_timeout: 5000
     }
     var settings = {};
     _.extend(settings, defaults, options);
+    this.options = settings;
 
-    this.clients = {};
+    this.master_clients = {};
     this.sentinel_clients = [];
     this.masters = {};
     this.slaves = {};
@@ -39,17 +40,13 @@ function Monitor( options ) {
     this.current_sentinel = null;
     this.current_subscription = null;
 
-    for (var port_index in .settings.ports) {
-        sentinel_clients.push(redis.createClient(.settings.ports[port_index], settings.host));
-    }
-
     this.clusters_expected = 0;
     this.clusters_loaded = 0;
 
     this.sync = function() {
         clusters_expected = 0;
         clusters_loaded = 0;
-        select_current_sentinel();
+        this.select_current_sentinel();
     }
 
     ////////////////////////////////
@@ -63,6 +60,11 @@ function Monitor( options ) {
         '+slave': on_new_slave,
         '+switch-master': on_switch_master,
         '+reboot': on_reboot_instance
+    }
+
+    this.add_sentinel = add_sentinel;
+    for (var port_index in settings.ports) {
+        this.add_sentinel(settings.ports[port_index], settings.host, true);
     }
 
     function on_obj_down(info) {
@@ -92,7 +94,7 @@ function Monitor( options ) {
     }
 
     function on_new_sentinel(info) {
-        add_sentinel(info.host, info.port);
+        add_sentinel(info.port, info.host);
     }
 
     // does nothing.  Should be handled by subdown/odown.
@@ -100,8 +102,8 @@ function Monitor( options ) {
         console.log(info.type + ' just rebooted');
     }
 
-    function add_sentinel(host, port) {
-        if (!does_sentinel_exist(host, port)) {
+    function add_sentinel(port, host, skip_check_if_exists) {
+        if (skip_check_if_exists || !does_sentinel_exist(host, port)) {
             self.sentinel_clients.push(redis.createClient(port, host));
         }
     }
@@ -130,7 +132,7 @@ function Monitor( options ) {
 
 Monitor.prototype.__proto__ = EventEmitter.prototype;
 
-Monitor.protorype.get_client = function(master_name) {
+Monitor.prototype.get_client = function(master_name) {
     var mc = this.master_clients[master_name];
 
     if (mc) return mc;
@@ -141,35 +143,33 @@ Monitor.protorype.get_client = function(master_name) {
 
     var port = parseInt(config.port);
     var host = config.ip;
-    var mc = new MasterClient(
-        master_name, 
-        port, 
-        host, 
-        this.slaves[master_name], 
-        this.options.failover_timeout
-    );
-
+    var slaves = this.slaves[master_name];
+    var timeout = this.failover_timeout;
+    var mc = this.create_master_client(master_name, port, host, slaves, timeout);
     this.master_clients[master_name] = mc;
     return mc;
 }
+Monitor.prototype.create_master_client = function(master_name, port, host, slaves, failover_timeout) {
+    return new MasterClient( master_name, port, host, slaves, failover_timeout );
+}
 
 Monitor.prototype.select_current_sentinel = function(num_trials) {
+    var self = this;
 
     num_trials = num_trials || 0;
-    if (num_trials >= sentinel_clients.length) this.all_sentinels_down();
+    if (num_trials >= this.sentinel_clients.length) this.all_sentinels_down();
 
-    this.current_sentinel = this.current_sentinel || sentinel_clients[0];
+    this.current_sentinel = this.current_sentinel || this.sentinel_clients[0];
 
     this.current_sentinel.ping( function( error, response ) {
         if (!error) {
-            this.clusters_expected = response.length;
-            this.subscribe_to_sentinel(this.current_sentinel);
-            this.sentinel_selected();
+            self.subscribe_to_sentinel(self.current_sentinel);
+            self.sentinel_selected();
             return;
         }
-        var new_sentinel_index = (this.get_current_sentinel_index() + 1) % sentinel_clients.length;
-        this.current_sentinel = sentinel_clients[new_sentinel_index];
-        this.select_current_sentinel(num_trials + 1);
+        var new_sentinel_index = (self.get_current_sentinel_index() + 1) % self.sentinel_clients.length;
+        self.current_sentinel = self.sentinel_clients[new_sentinel_index];
+        self.select_current_sentinel(num_trials + 1);
     });
 };
 
@@ -197,7 +197,8 @@ Monitor.prototype.subscribe_to_sentinel = function(sentinel_client) {
 Monitor.prototype.load_master_list = function() {
     this.current_sentinel.send_command( 'sentinel', ['masters'], handle_master_list_response.bind(this));
 };
-function handle_master_list_resonse(err, response) {
+function handle_master_list_response(err, response) {
+    this.clusters_expected = response.length;
     for (var i = 0; i < response.length; i++) {
         var master_config = unflatten_hash(response[i]);
         this.masters[master_config.name] = master_config;
@@ -211,9 +212,9 @@ function handle_master_list_resonse(err, response) {
  *  @param {string} master_name The name of the redis cluster from which to request the slave list.
  */
 Monitor.prototype.load_slave_list = function(master_name) {
-    this.current_sentinel.send_command('sentinel', ['slaves', master_name], handle_slave_list_response.bind(this));
+    this.current_sentinel.send_command('sentinel', ['slaves', master_name], handle_slave_list_response.bind(this, master_name));
 };
-function handle_slave_list_response(err, response) {
+function handle_slave_list_response(master_name, err, response) {
     // TODO: handle error here
     if (this.slaves[master_name]) this.slaves[master_name].length = 0;
     else this.slaves[master_name] = [];
@@ -225,20 +226,20 @@ function handle_slave_list_response(err, response) {
 }
 
 /**** Event emiter wrapper functions ****/
-Monitor.prototype.all_sentinels_down() {
-    self.emit('all_down');
+Monitor.prototype.all_sentinels_down = function() {
+    this.emit('all_down');
 };
-Monitor.prototype.master_config_loaded(master_name) {
-    self.emit('master_config_loaded', master_name);
+Monitor.prototype.master_config_loaded = function(master_name) {
+    this.emit('master_config_loaded', master_name);
 };
-Monitor.prototype.cluster_ready(master_name) {
-    self.emit('cluster_ready', master_name);
+Monitor.prototype.cluster_ready = function(master_name) {
+    this.emit('cluster_ready', master_name);
 };
-Monitor.prototype.sync_complete() {
-    self.emit('sync_complete');
+Monitor.prototype.sync_complete = function() {
+    this.emit('sync_complete');
 };
-Monitor.prototype.sentinel_selected() {
-    self.emit('sentinel_selected');
+Monitor.prototype.sentinel_selected = function() {
+    this.emit('sentinel_selected');
 }
 
 /**** Utility Functions ****/

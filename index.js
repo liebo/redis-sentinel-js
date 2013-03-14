@@ -1,3 +1,3 @@
-var Monitor = require("./monitor.js");
 
-exports.Monitor = Monitor;
+exports.Monitor = require('./monitor.js');;
+exports.MasterClient = require('./master_client.js');

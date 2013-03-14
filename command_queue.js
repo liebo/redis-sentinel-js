@@ -1,7 +1,7 @@
 
 var redis = require('redis');
 
-module.export = CommandQueue;
+module.exports = CommandQueue;
 
 function CommandQueue(client) {
     redis.Multi.call(this);

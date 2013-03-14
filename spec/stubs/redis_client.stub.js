@@ -1,5 +1,5 @@
 var redis = require('redis');
-var net_client = require('net').createClient(80, 'google.com');
+var net_client = require('net').createConnection(80, 'google.com');
 
 exports.FailingRedisClient = FailingRedisClient;
 exports.SucceedingRedisClient = SucceedingRedisClient;
