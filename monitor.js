@@ -177,15 +177,23 @@ Monitor.prototype.get_current_sentinel_index = function() {
     return this.sentinel_clients.indexOf(this.current_sentinel);
 };
 
+/**
+ *  Subscribes to the given sentinel's pubsub events.
+ *
+ *  @param {RedisClient} sentinel_client The client object connected to the desired sentinel.
+ */
 Monitor.prototype.subscribe_to_sentinel = function(sentinel_client) {
     delete this.current_subscription;
     this.current_subscription = redis.createClient(sentinel_client.remotePort, sentinel_client.remoteAddress);
     this.current_subscription.subscribe('all');
     //sentinel.on('error', function(){});
     //sentinel.on('end', function(){});
-    this.current_subscription.on('message', handle_sentinel_message);
+    this.current_subscription.on('message', handle_sentinel_message.bind(this));
 };
 
+/**
+ *  Requests list of masters from the sentinel and stores it.
+ */
 Monitor.prototype.load_master_list = function() {
     this.current_sentinel.send_command( 'sentinel', ['masters'], handle_master_list_response.bind(this));
 };
@@ -197,6 +205,11 @@ function handle_master_list_resonse(err, response) {
     }
 }
 
+/**
+ *  For the named master instance, requests list of slaves from the sentinel and stores it.
+ *
+ *  @param {string} master_name The name of the redis cluster from which to request the slave list.
+ */
 Monitor.prototype.load_slave_list = function(master_name) {
     this.current_sentinel.send_command('sentinel', ['slaves', master_name], handle_slave_list_response.bind(this));
 };
@@ -236,7 +249,7 @@ function handle_sentinel_message (channel, message) {
     console.log(channel, message);
     if ( !(message && typeof message.data == 'string') ) return;
 
-    var handler = SUBSCRIPTION_HANDLES[message['channel']];
+    var handler = this.SUBSCRIPTION_HANDLES[message['channel']];
     if ( typeof handler != 'function' ) return;
     handler( parse_instance_info(message['data']) );
 }

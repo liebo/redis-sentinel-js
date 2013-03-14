@@ -10,7 +10,7 @@ function MasterClient(master_name, master_port, master_host, slaves, timeout) {
     this.name = master_name;
     this.failover_timeout = timeout || 5000;
 
-    MasterClient.prototype.connect_to_redis_instance.call(this, master_port, master_host );
+    MasterClient.prototype.connect_to_redis_instance.call( this, master_port, master_host );
 
 }
 
@@ -60,7 +60,8 @@ MasterClient.prototype.connect_to_redis_instance = function( port, host ) {
     redis.RedisClient.call(this, net_client);
 }
 
-MasterClient.prototype.send_negotiated_command = function(command, args, next, trials) {
+MasterClient.prototype.super_send_command = redis.RedisClient.prototype.send_command;
+MasterClient.prototype.send_command = function(command, args, next, trials) {
     console.info('negotiated command args: ', command, args);
     trials = trials || 0;
     if (typeof next != 'function') next = function(){};
