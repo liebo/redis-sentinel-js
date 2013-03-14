@@ -16,6 +16,7 @@ module.exports = Monitor;
  *      A dictionary of the options determining the settings for the redis cluster
  *      options.ports => an array of port numbers indicating how to connect to sentinels
  *      options.host => a string indicating the host to connect to
+ *      options.timeout => the timeout for queued requests wating for failover to finish
  */
 function Monitor( options ) {
 
@@ -24,7 +25,8 @@ function Monitor( options ) {
 
     var defaults = {
         host: 'localhost',
-        ports: [23679]
+        ports: [23679],
+        timeout: 5000
     }
     var settings = {};
     _.extend(settings, defaults, options);
@@ -139,7 +141,13 @@ Monitor.protorype.get_client = function(master_name) {
 
     var port = parseInt(config.port);
     var host = config.ip;
-    var mc = new MasterClient(master_name, port, host, this.slaves[master_name]);
+    var mc = new MasterClient(
+        master_name, 
+        port, 
+        host, 
+        this.slaves[master_name], 
+        this.options.failover_timeout
+    );
 
     this.master_clients[master_name] = mc;
     return mc;

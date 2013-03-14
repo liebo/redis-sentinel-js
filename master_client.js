@@ -8,7 +8,7 @@ function MasterClient(master_name, master_port, master_host, slaves, timeout) {
 
     var self = this;
     this.name = master_name;
-    this.failover_timeout = timeout;
+    this.failover_timeout = timeout || 5000;
 
     MasterClient.prototype.connect_to_redis_instance.call(this, master_port, master_host );
 
@@ -57,8 +57,7 @@ MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
 
 MasterClient.prototype.connect_to_redis_instance = function( port, host ) {
     var net_client = net.createConnection(port, host);
-    redis.RedisClient.call(this, net_client); // has potential options arg which currently isnt in use
-
+    redis.RedisClient.call(this, net_client);
 }
 
 MasterClient.prototype.send_negotiated_command = function(command, args, next, trials) {
