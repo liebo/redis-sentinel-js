@@ -1,10 +1,15 @@
 {
-    "name" : "redis-sentinel",
+    "name" : "redis-sentinel-js",
     "main" : "./index.js",
+    "author": "Stanton W. Jones",
     "version":"0.0.0",
     "dependencies":{
         "should":"*",
         "redis":"*",
         "underscore": "*"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/stantonwjones/redis-sentinel-js"
     }
 }
