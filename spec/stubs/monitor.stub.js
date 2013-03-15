@@ -8,8 +8,8 @@ var stub_master_response = [
 
 var stub_slave_responses = {
     mymaster: [
-        ['ip', 'google.com', 'port', '80'],
-        ['ip', 'google.com', 'port', '80']
+        ['ip', 'facebook.com', 'port', '80'],
+        ['ip', 'twitter.com', 'port', '80']
     ],
     othermaster: [
     ]
@@ -27,7 +27,10 @@ function MonitorStub() {
         stubOffSentinelClient(sentinel);
     });
     this.create_master_client = function(master_name, port, host, slaves, timeout) {
-        return new MasterClientStub(master_name, port, host, slaves, timeout);
+        var options = {
+            no_ready_check: true
+        };
+        return new MasterClientStub(master_name, port, host, slaves, timeout, options);
     }
 }
 

@@ -44,8 +44,8 @@ function Monitor( options ) {
     this.clusters_loaded = 0;
 
     this.sync = function() {
-        clusters_expected = 0;
-        clusters_loaded = 0;
+        this.clusters_expected = 0;
+        this.clusters_loaded = 0;
         this.select_current_sentinel();
     }
 
@@ -184,7 +184,7 @@ Monitor.prototype.get_current_sentinel_index = function() {
  */
 Monitor.prototype.subscribe_to_sentinel = function(sentinel_client) {
     delete this.current_subscription;
-    this.current_subscription = redis.createClient(sentinel_client.remotePort, sentinel_client.remoteAddress);
+    this.current_subscription = redis.createClient(sentinel_client.port, sentinel_client.host);
     this.current_subscription.subscribe('all');
     //sentinel.on('error', function(){});
     //sentinel.on('end', function(){});

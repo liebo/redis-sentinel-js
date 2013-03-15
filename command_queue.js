@@ -5,40 +5,32 @@ module.exports = CommandQueue;
 
 function CommandQueue(client) {
     redis.Multi.call(this);
+    var self = this;
     this.queue = [];
+    this.client = client;
     this.queue.push = function(command_array) {
-        command_array.push( (new Date(this.client.failover_timeout)).getTime() );
-        Array.push.call(this.queue, command_array);
-        if (!this.should_clear_commands) {
-            this.should_clear_commands = true;
-            this.clear_expired_commands();
+        command_array.push( (new Date(self.client.failover_timeout)).getTime() );
+        self.queue[self.queue.length] = command_array;
+        if (!self.should_clear_commands) {
+            self.should_clear_commands = true;
+            self.clear_expired_commands();
         }
-    }
+    };
 
-    this.clear_expired_commands = function() {
-        if (!this.should_clear_commands) return;
-        var now = (new Date).getTime();
-        while ( this.queue.length > 0 && this.queue[0][-1] < now ) {
-            if (!this.should_clear_commands) break;
-            var args = this.queue.shift();
-            if (typeof args[-2] == 'function') args[-2]('Call Expired');
-        }
-        if (!this.queue.length) this.should_clear_commands = 0;
-        else setTimeout(clear_expired_commands.bind(this), 500);
-    }
 }
 
 CommandQueue.prototype.__proto__ = redis.Multi.prototype;
 
-CommandQueue.prototype.exec = function(callback) {
+CommandQueue.prototype.exec = function() {
     this.should_clear_commands = false;
+    delete this.client.cq; // dont like operating on the client like this.
     while( this.queue.length > 0 ) {
-        var args = queue.shift();
+        var args = this.queue.shift();
         args.pop();
-        var command = args[0];
+        var command = args.shift();
         var cb;
-        if (typeof args[-1] == 'function') {
-            cb = args[-1];
+        if (typeof args[args.length-1] == 'function') {
+            cb = args[args.length-1];
             args = args.slice(1, -1);
         } else {
             args = args.slice(1);
@@ -58,3 +50,26 @@ CommandQueue.prototype.exec = function(callback) {
 };
 
 CommandQueue.prototype.EXEC = CommandQueue.prototype.exec;
+
+CommandQueue.prototype.clear_expired_commands = function() {
+    var self = this;
+    setTimeout(function() {self.expire_queue_daemon()}, 500);
+};
+CommandQueue.prototype.clear_expired_commands_immediately = function() {
+    console.log('Queue size is: ', this.queue.length);
+    if (!this.should_clear_commands) return;
+    console.log('expiring queued commands');
+    var now = (new Date).getTime();
+    while ( this.queue.length > 0 && this.queue[0][this.queue[0].length-1] < now ) {
+        if (!this.should_clear_commands) return;
+        var args = this.queue.shift();
+        if (typeof args[args.length-2] == 'function') args[args.length-2]('Call Expired');
+    }
+    if (!this.queue.length) this.should_clear_commands = false;
+    return this.should_clear_commands;
+};
+CommandQueue.prototype.expire_queue_daemon = function() {
+    var self = this;
+    if (this.clear_expired_commands_immediately())
+        setTimeout(function(){self.expire_queue_daemon}, 500);
+};
