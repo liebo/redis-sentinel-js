@@ -97,10 +97,7 @@ function Monitor( options ) {
         add_sentinel(info.port, info.host);
     }
 
-    // does nothing.  Should be handled by subdown/odown.
-    function on_reboot_instance(info) {
-        console.log(info.type + ' just rebooted');
-    }
+    function on_reboot_instance(info) {}
 
     function add_sentinel(port, host, skip_check_if_exists) {
         if (skip_check_if_exists || !does_sentinel_exist(host, port)) {
@@ -185,10 +182,10 @@ Monitor.prototype.get_current_sentinel_index = function() {
 Monitor.prototype.subscribe_to_sentinel = function(sentinel_client) {
     delete this.current_subscription;
     this.current_subscription = redis.createClient(sentinel_client.port, sentinel_client.host);
-    this.current_subscription.subscribe('all');
+    this.current_subscription.psubscribe('*');
     //sentinel.on('error', function(){});
     //sentinel.on('end', function(){});
-    this.current_subscription.on('message', handle_sentinel_message.bind(this));
+    this.current_subscription.on('pmessage', handle_sentinel_message.bind(this));
 };
 
 /**
@@ -246,11 +243,11 @@ Monitor.prototype.sentinel_selected = function() {
 /**
  *  Calls the appropriate message handler for the sentinel channel on a publish event.
  */
-function handle_sentinel_message (channel, message) {
+function handle_sentinel_message(pattern, channel, message) {
     console.log(channel, message);
     if ( !(message && typeof message.data == 'string') ) return;
 
-    var handler = this.SUBSCRIPTION_HANDLES[message['channel']];
+    var handler = this.SUBSCRIPTION_HANDLES[channel];
     if ( typeof handler != 'function' ) return;
     handler( parse_instance_info(message['data']) );
 }

@@ -13,6 +13,9 @@ function MasterClient(master_name, master_port, master_host, slaves, timeout, op
     this.redis_client_options = options
 
     MasterClient.prototype.connect_to_redis_instance.call( this, master_port, master_host );
+    this.on('end', function() {
+        this.enter_failsafe_state();
+    });
 
 }
 
