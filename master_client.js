@@ -72,7 +72,7 @@ MasterClient.prototype.connect_to_redis_instance = function( port, host ) {
 MasterClient.prototype.super_send_command = redis.RedisClient.prototype.send_command;
 MasterClient.prototype.send_command = function(command, args, next, trials) {
     trials = trials || 0;
-    if (typeof args[-1] == 'function') next = args[-1];
+    if (typeof args[args.length-1] == 'function') next = args.pop();
     else if (typeof next != 'function') next = function(){};
 
     if (this.cq) this.send_command_with_failsafe(command, args, next, trials);
@@ -98,7 +98,7 @@ MasterClient.prototype.send_command_without_failsafe = function(command, args, n
     var self = this;
     self.super_send_command(command, args, function( error, response ) {
         // TODO: how many trials will we allow before deciding the process has failed beyond recovery?
-        if (error && !trials) {
+        if (error && trials < 1) {
             return self.enter_failsafe_state( function() {
                 self.send_command(command, args, next);
             });
