@@ -9,7 +9,7 @@ function CommandQueue(client) {
     this.queue = [];
     this.client = client;
     this.queue.push = function(command_array) {
-        command_array.push( (new Date(self.client.failover_timeout)).getTime() );
+        command_array.push( (new Date()).getTime() + self.client.failover_timeout );
         self.queue[self.queue.length] = command_array;
         if (!self.should_clear_commands) {
             self.should_clear_commands = true;
@@ -23,29 +23,20 @@ CommandQueue.prototype.__proto__ = redis.Multi.prototype;
 
 CommandQueue.prototype.exec = function() {
     this.should_clear_commands = false;
-    delete this.client.cq; // dont like operating on the client like this.
-    while( this.queue.length > 0 ) {
+    if ( this.queue.length ) {
         var args = this.queue.shift();
         args.pop();
         var command = args.shift();
-        var cb;
-        if (typeof args[args.length-1] == 'function') {
-            cb = args[args.length-1];
-            args = args.slice(1, -1);
-        } else {
-            args = args.slice(1);
-        }
-        if (args.length === 1 && Array.isArray(args[0])) {
-            args = args[0];
-        }
+        var cb = args.pop();
         if (command.toLowerCase() === 'hmset' && typeof args[1] === 'object') {
             obj = args.pop();
             Object.keys(obj).forEach(function (key) {
                 args.push(key);
                 args.push(obj[key]);
             });
-        }
-        this.client.send_command(command, args, cb);
+        } else args = args[0];
+        this.client.send_command(command, args, cb)
+        this.exec();
     }
 };
 
@@ -56,9 +47,7 @@ CommandQueue.prototype.clear_expired_commands = function() {
     setTimeout(function() {self.expire_queue_daemon()}, 500);
 };
 CommandQueue.prototype.clear_expired_commands_immediately = function() {
-    console.log('Queue size is: ', this.queue.length);
     if (!this.should_clear_commands) return;
-    console.log('expiring queued commands');
     var now = (new Date).getTime();
     while ( this.queue.length > 0 && this.queue[0][this.queue[0].length-1] < now ) {
         if (!this.should_clear_commands) return;

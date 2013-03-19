@@ -8,6 +8,7 @@ function MasterClientStub(master_name, port, host, slaves, timeout, options) {
     host = 'google.com';
     MasterClient.call(this, master_name, port, host, slaves, timeout, options); 
         
+    this.on_info_cmd = function(){};
 }
 MasterClientStub.prototype.__proto__ = MasterClient.prototype;
 

@@ -1,4 +1,7 @@
 var Monitor = require('../../monitor.js');
+var RedisClient = require('redis').RedisClient;
+RedisClient.prototype.on_info_cmd = function(){};
+RedisClient.prototype.ready_check = function(){};
 var MasterClientStub = require('./master_client.stub.js');
 
 var stub_master_response = [
@@ -27,10 +30,7 @@ function MonitorStub() {
         stubOffSentinelClient(sentinel);
     });
     this.create_master_client = function(master_name, port, host, slaves, timeout) {
-        var options = {
-            no_ready_check: true
-        };
-        return new MasterClientStub(master_name, port, host, slaves, timeout, options);
+        return new MasterClientStub(master_name, port, host, slaves, timeout);
     }
 }
 

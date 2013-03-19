@@ -233,6 +233,7 @@ Monitor.prototype.cluster_ready = function(master_name) {
     this.emit('cluster_ready', master_name);
 };
 Monitor.prototype.sync_complete = function() {
+    this.synced = true;
     this.emit('sync_complete');
 };
 Monitor.prototype.sentinel_selected = function() {
