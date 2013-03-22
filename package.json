@@ -3,7 +3,7 @@
   "main": "./index.js",
   "author": "Stanton W. Jones",
   "description": "A sentinel monitor and client lib whith bundled failsafes for providing a high availability connection to a redis cluster.",
-  "keywords": "redis sentinel",
+  "keywords": ["redis", "sentinel", "client"],
   "version": "0.1.0",
   "dependencies": {
     "should": "*",
