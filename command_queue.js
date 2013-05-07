@@ -9,12 +9,17 @@ function CommandQueue(client) {
     this.queue = [];
     this.client = client;
     this.queue.push = function(command_array) {
+
         command_array.push( (new Date()).getTime() + self.client.failover_timeout );
         self.queue[self.queue.length] = command_array;
+
         if (!self.should_clear_commands) {
             self.should_clear_commands = true;
             self.clear_expired_commands();
         }
+    };
+    this.queue.oldest_timestamp = function() {
+        return this[0][this[0].length-1];
     };
 
 }
@@ -35,30 +40,39 @@ CommandQueue.prototype.exec = function() {
                 args.push(obj[key]);
             });
         } else args = args[0];
-        this.client.send_command(command, args, cb)
+        this.client.send_command(command, args, cb);
         this.exec();
     }
 };
 
 CommandQueue.prototype.EXEC = CommandQueue.prototype.exec;
 
+/**
+ * Starts the interval for clearing expired commands.
+ */
 CommandQueue.prototype.clear_expired_commands = function() {
-    var self = this;
-    setTimeout(function() {self.expire_queue_daemon()}, 500);
+    setTimeout(this.expire_queue_daemon.bind(this), 500);
 };
+/**
+ * Expires commands untill this.should_clear_commands is false or the queue is empty.
+ */
+CommandQueue.prototype.expire_queue_daemon = function() {
+    this.clear_expired_commands_immediately();
+    if (this.should_clear_commands)
+        setTimeout(this.expire_queue_daemon.bind(this), 500);
+};
+/**
+ * Clears all expired commands and clears should_clear_commands flag if the queue is empty.
+ */
 CommandQueue.prototype.clear_expired_commands_immediately = function() {
-    if (!this.should_clear_commands) return;
     var now = (new Date).getTime();
-    while ( this.queue.length > 0 && this.queue[0][this.queue[0].length-1] < now ) {
-        if (!this.should_clear_commands) return;
+    while ( this.queue.length > 0 && this.queue.oldest_timestamp() < now && this.should_clear_commands ) {
         var args = this.queue.shift();
-        if (typeof args[args.length-2] == 'function') args[args.length-2]('Call Expired');
+        if (typeof args[args.length-2] == 'function') args[args.length-2]( command_expired_error() ); // call callback with an error
     }
     if (!this.queue.length) this.should_clear_commands = false;
-    return this.should_clear_commands;
 };
-CommandQueue.prototype.expire_queue_daemon = function() {
-    var self = this;
-    if (this.clear_expired_commands_immediately())
-        setTimeout(function(){self.expire_queue_daemon}, 500);
-};
+
+function command_expired_error() {
+    return new Error('Command expired in failsafe queue')
+}

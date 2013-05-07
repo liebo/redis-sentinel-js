@@ -1,3 +1,4 @@
+
 var MasterClient = require('../../master_client.js');
 var redisClientStubs = require('./redis_client.stub.js');
 

@@ -78,6 +78,7 @@ describe('MasterClient', function() {
                 master_client.ping(function() {done()});
             });
             master_client.exit_failsafe_state({port:80, host:'google.com'});
+            master_client.emit('connect'); // make sure this fires
         });
     });
 });

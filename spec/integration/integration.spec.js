@@ -58,6 +58,7 @@ describe('MasterClient', function() {
         it('correctly sends commands to the master instance', function(done) {
             master_client.hset(['x', '5', '5'], function(err, response) {
                 (!!err).should.be.false;
+                response.should.eql(1);
                 done();
             });
         })
@@ -108,6 +109,7 @@ describe('MasterClient', function() {
         it('writes to new master', function(done) {
             master_client.hset(['x', '3', '3'], function(err, response) {
                 (!!err).should.be.false;
+                (!!response).should.be.true;
                 done();
             });
             (master_client.cq == undefined).should.be.true;

@@ -14,8 +14,7 @@ module.exports = Monitor;
  *
  *  @param {Object} options
  *      A dictionary of the options determining the settings for the redis cluster
- *      options.ports => an array of port numbers indicating how to connect to sentinels
- *      options.host => a string indicating the host to connect to
+ *      options.hosts => a string indicating the host:port to connect to
  *      options.timeout => the timeout for queued requests wating for failover to finish
  */
 function Monitor( options ) {
@@ -24,10 +23,10 @@ function Monitor( options ) {
     EventEmitter.call(this);
 
     var defaults = {
-        host: 'localhost',
-        ports: [23679],
+        hosts: ['localhost:23679'],
         failover_timeout: 5000
-    }
+    };
+
     var settings = {};
     _.extend(settings, defaults, options);
     this.options = settings;
@@ -47,7 +46,7 @@ function Monitor( options ) {
         this.clusters_expected = 0;
         this.clusters_loaded = 0;
         this.select_current_sentinel();
-    }
+    };
 
     ////////////////////////////////
 
@@ -60,11 +59,12 @@ function Monitor( options ) {
         '+slave': on_new_slave,
         '+switch-master': on_switch_master,
         '+reboot': on_reboot_instance
-    }
+    };
 
     this.add_sentinel = add_sentinel;
-    for (var port_index in settings.ports) {
-        this.add_sentinel(settings.ports[port_index], settings.host, true);
+    for (var hosts_index in settings.hosts) {
+        var host_and_port = settings.hosts[hosts_index].split(':');
+        this.add_sentinel(parseInt(host_and_port[1]), host_and_port[0], true);
     }
 
     function on_obj_down(info) {
@@ -129,12 +129,19 @@ function Monitor( options ) {
 
 Monitor.prototype.__proto__ = EventEmitter.prototype;
 
+/**
+ * Returns the master client abstraction used to maintain high availability
+ * connection to the redis cluster. If a MasterClient exists by the given
+ * name, return that client.  Else create one and store it in the 'clients' hash.
+ *
+ * @param {string} master_name The name given to the cluster by the sentinels.
+ * @return {MasterClient} The requested MasterClient.
+ */
 Monitor.prototype.get_client = function(master_name) {
     var mc = this.master_clients[master_name];
 
     if (mc) return mc;
 
-    // TODO: handle lack of master going by this name
     var config = this.masters[master_name];
     if (!config) throw "Sentinels cannot find master: " + master_name;
 
@@ -142,14 +149,22 @@ Monitor.prototype.get_client = function(master_name) {
     var host = config.ip;
     var slaves = this.slaves[master_name];
     var timeout = this.failover_timeout;
-    var mc = this.create_master_client(master_name, port, host, slaves, timeout);
+    mc = this.create_master_client(master_name, port, host, slaves, timeout);
     this.master_clients[master_name] = mc;
     return mc;
-}
+};
+
+/**
+ * Creates a MasterClient instance. Overridden in test.
+ */
 Monitor.prototype.create_master_client = function(master_name, port, host, slaves, failover_timeout) {
     return new MasterClient( master_name, port, host, slaves, failover_timeout );
-}
+};
 
+/**
+ * Sets the current sentinel to the first active sentinel provided by
+ * the options argument.
+ */
 Monitor.prototype.select_current_sentinel = function(num_trials) {
     var self = this;
 
@@ -158,7 +173,7 @@ Monitor.prototype.select_current_sentinel = function(num_trials) {
 
     this.current_sentinel = this.current_sentinel || this.sentinel_clients[0];
 
-    this.current_sentinel.ping( function( error, response ) {
+    this.current_sentinel.ping( function( error ) {
         if (!error) {
             self.subscribe_to_sentinel(self.current_sentinel);
             self.sentinel_selected();
@@ -181,6 +196,7 @@ Monitor.prototype.get_current_sentinel_index = function() {
  */
 Monitor.prototype.subscribe_to_sentinel = function(sentinel_client) {
     delete this.current_subscription;
+
     this.current_subscription = redis.createClient(sentinel_client.port, sentinel_client.host);
     this.current_subscription.psubscribe('*');
     //sentinel.on('error', function(){});
@@ -212,6 +228,7 @@ Monitor.prototype.load_slave_list = function(master_name) {
     this.current_sentinel.send_command('sentinel', ['slaves', master_name], handle_slave_list_response.bind(this, master_name));
 };
 function handle_slave_list_response(master_name, err, response) {
+
     // TODO: handle error here
     if (this.slaves[master_name]) this.slaves[master_name].length = 0;
     else this.slaves[master_name] = [];
@@ -238,14 +255,15 @@ Monitor.prototype.sync_complete = function() {
 };
 Monitor.prototype.sentinel_selected = function() {
     this.emit('sentinel_selected');
-}
+};
 
 /**** Utility Functions ****/
 /**
  *  Calls the appropriate message handler for the sentinel channel on a publish event.
+ *
+ *  NOTE: the pattern param is a placeholder and is not being used at all
  */
 function handle_sentinel_message(pattern, channel, message) {
-    console.log(channel, message);
     if ( !(message && typeof message.data == 'string') ) return;
 
     var handler = this.SUBSCRIPTION_HANDLES[channel];
@@ -267,6 +285,7 @@ function parse_instance_info(infoStr) {
         host: tokens[2],
         port: tokens[3]
     };
+
     if (info.type == 'slave') info.master_name = tokens[5];
     return info;
 }
@@ -284,6 +303,7 @@ function unflatten_hash(arr) {
     for (var i = 0; i < arr.length; i += 2) {
         out[arr[i]] = arr[i + 1];
     }
+
     return out;
 }
 

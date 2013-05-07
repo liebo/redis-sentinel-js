@@ -3,6 +3,7 @@ redis_sentinel = require('../../index.js');
 var MonitorStub = require('../stubs/monitor.stub.js');
 
 describe('Monitor', function() {
+
     describe('#get_client()', function() {
         var master_client;
         var monitor = new MonitorStub();
@@ -16,11 +17,13 @@ describe('Monitor', function() {
             master_client.should.equal(another_client);
         });
     });
+
     describe('#sync()', function() {
         var monitor = new MonitorStub();
+        console.log('monitori created');
         monitor.sentinel_clients[0].ping = function(cb) {
             cb(true);
-        }
+        };
         monitor.sync();
 
         it('Should select the first sentinel that responds to a ping', function() {
@@ -32,7 +35,7 @@ describe('Monitor', function() {
             monitor.masters.othermaster.ip.should.equal('google.com');
         });
         it('Should store slave configurations for each master', function() {
-            (monitor.slaves.mymaster instanceof Array).should.be.true;
+            monitor.slaves.mymaster.should.be.an.instanceOf(Array);
         });
         it('Should emit a "master_config_loaded" event for each master_config', function(done) {
             var num_master_configs = 0;
@@ -53,9 +56,8 @@ describe('Monitor', function() {
             }
         });
     });
+
     describe('#subscribe_to_sentinel()', function() {
         it('Should set listeners to pubsub of the given sentinel',function(){});
-//        describe('current_subscription', function() {
-//        });
     });
 });
