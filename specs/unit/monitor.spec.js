@@ -5,12 +5,18 @@ var MonitorStub = require('../stubs/monitor.stub.js');
 describe('Monitor', function() {
 
     describe('#get_client()', function() {
+        var monitor;
         var master_client;
-        var monitor = new MonitorStub();
-        monitor.on('sync_complete', function() {
-            master_client = monitor.get_client('mymaster');
+
+        beforeEach(function(done) {
+            master_client;
+            monitor = new MonitorStub();
+            monitor.once('synced', function() {
+                master_client = monitor.get_client('mymaster');
+                done();
+            });
+            monitor.sync();
         });
-        monitor.sync();
 
         it('Should return the same client on repeated requests', function() {
             var another_client = monitor.get_client('mymaster');
@@ -19,15 +25,22 @@ describe('Monitor', function() {
     });
 
     describe('#sync()', function() {
-        var monitor = new MonitorStub();
-        console.log('monitori created');
-        monitor.sentinel_clients[0].ping = function(cb) {
-            cb(true);
-        };
-        monitor.sync();
+        var monitor;
+
+        beforeEach( function(done) {
+            monitor = new MonitorStub();
+            monitor.once('synced', function() {
+                monitor.sentinel_client.ping = function(cb) {
+                    cb(true);
+                };
+                done()
+            });
+            monitor.sync();
+        });
 
         it('Should select the first sentinel that responds to a ping', function() {
-            monitor.current_sentinel.should.equal(monitor.sentinel_clients[1]);
+            monitor.sentinel_client.host.should.equal(monitor.sentinels[0].host);
+            monitor.sentinel_client.port.should.equal(monitor.sentinels[0].port);
         });
 
         it('Should store master client configurations', function() {
@@ -52,7 +65,7 @@ describe('Monitor', function() {
             monitor.sync();
             function increment_num_clusters() {
                 num_clusters++;
-                if (num_clusters >= 2) done();
+                if (num_clusters == 2) done();
             }
         });
     });

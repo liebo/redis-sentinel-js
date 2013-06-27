@@ -1,4 +1,3 @@
-
 var Monitor = require('../../monitor.js');
 var RedisClient = require('redis').RedisClient;
 RedisClient.prototype.on_info_cmd = function(){};
@@ -26,10 +25,11 @@ var options = {
 module.exports = MonitorStub;
 
 function MonitorStub() {
+    this.connect_to_sentinel = function(index) {
+        Monitor.prototype.connect_to_sentinel.call(this, index);
+        stubOffSentinelClient(this.sentinel_client);
+    }
     Monitor.call(this, options);
-    this.sentinel_clients.forEach(function(sentinel) {
-        stubOffSentinelClient(sentinel);
-    });
 
     this.create_master_client = function(master_name, port, host, slaves, timeout) {
         return new MasterClientStub(master_name, port, host, slaves, timeout);
