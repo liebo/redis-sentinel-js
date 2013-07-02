@@ -53,6 +53,7 @@ MasterClient.prototype.exit_failsafe_state = function(new_master_config) {
 
 MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
     var self = this;
+    // TODO: start failsafe state with rw and selectively consume reads if we can connect to a valid slave
     this.failsafe_state = 'w';
     if (typeof num_trials == 'function') {
         next = num_trials;
@@ -60,14 +61,13 @@ MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
     }
     num_trials = num_trials || 0;
 
-    // using the square of num slaves as the upper bound for number of random slaves
-    // to try.
-    if (num_trials < this.slaves.length * this.slaves.length) {
-        var slave = this.slaves[Math.floor(Math.random() * this.slaves.length)];
+    // arbitrary upper bound chosen to account for slaves being altered while fallback is taking place
+    if (num_trials < this.slaves.length + 3) {
+        var slave = this.slaves[num_trials % this.slaves.length];
         this.connect_to_redis_instance( slave.port, slave.ip );
         this.ping( function(error) {
-            if (error) self.connect_to_valid_slave(num_trials + 1, next);
-            else self.failsafe_state = 'w';
+            if (error) return self.connect_to_valid_slave(num_trials + 1, next);
+            self.failsafe_state = 'w';
             next();
         });
     } else {

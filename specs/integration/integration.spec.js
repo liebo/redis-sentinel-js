@@ -3,54 +3,81 @@ var cp = require('child_process');
 var redis = require('redis');
 
 var Monitor = require('../../monitor.js');
-var sentinels;
-init_cluster();
+//var sentinels;
+// Make sure you run init_sentinel_cluster in redis-sentinel/scrips with at least 2 sentinels
+//init_cluster();
 
+/*
 monitor = new Monitor({
-    ports: [26379, 26380]
+    hosts: [
+        'localhost:26379',
+        'localhost:26380']
 });
+*/
 
-function kill_slave(master_name, index) {
+//console.log('the monitor settings are:', monitor.options);
+
+function kill_slave(monitor, master_name, index) {
     var slave_config = monitor.slaves[master_name][index];
     var slave_client = redis.createClient(slave_config.port, slave_config.ip);
+    slave_client.shutdown();
+    slave_client.end();
 }
-function init_cluster() {
-    sentinels = cp.spawn('../../scripts/init_sentinel_cluster.sh', [2]);
+function init_cluster(done) {
+    var sentinels = cp.spawn( __dirname + '/../../scripts/init_sentinel_cluster.sh', ['2']);
+    sentinels.stderr.setEncoding('utf8');
+    sentinels.stderr.on('data', console.log.bind(console));
+    sentinels.stdout.setEncoding('utf8');
+    sentinels.stdout.once('data', function(){setTimeout(done, 1500)});
 }
 
 describe('Sentinel Monitor', function() {
-    it('gets correct cluster state from sentinels', function(done) {
-        monitor.once('sync_complete', function() {
-            monitor.sentinel_clients.length.should.eql(2);
-            (!!monitor.masters['master0'] && !!monitor.masters['master1']).should.be.true;
-            monitor.slaves['master0'].length.should.eql(2);
-            monitor.slaves['master1'].length.should.eql(1);
-            done();
+    var sentinels;
+    var monitor;
+    beforeEach(function(done) {
+        sentinels = init_cluster(function() {
+            monitor = new Monitor({
+                hosts: [
+                    'localhost:26379',
+                    'localhost:26380']
+            });
+            monitor.once('synced', done);
+            monitor.sync();
         });
-        monitor.sync();
+    });
+    it('gets correct cluster state from sentinels', function() {
+        monitor.sentinels.length.should.eql(2);
+        (!!monitor.masters['master0'] && !!monitor.masters['master1']).should.be.true;
+        monitor.slaves['master0'].length.should.eql(2);
+        monitor.slaves['master1'].length.should.eql(1);
     })
     it('has subscription to pubsub', function(done) {
         this.timeout(10000);
         monitor.current_subscription.once('pmessage', function() {
             done();
         });
-        kill_slave('master0', 0);
+        // below is commented out b/c pubsub will dump all messages recieved before subscription
+        //kill_slave(monitor, 'master0', 0);
     });
 });
 describe('MasterClient', function() {
 
     var master_client;
-
-    beforeEach(function(done) {
-        if (monitor.synced) {
-            master_client = monitor.get_client('master1');
-            master_client.failover_timeout = 20000;
-            done();
-        }
-        else monitor.once('sync_conplete', function() {
-            master_client = monitor.get_client('master1');
-            master_client.failover_timeout = 20000;
-            done();
+    var monitor;
+    var sentinels;
+    before(function(done) {
+        sentinels = init_cluster(function() {
+            monitor = new Monitor({
+                hosts: [
+                    'localhost:26379',
+                    'localhost:26380']
+            });
+            monitor.once('synced', function() {
+                master_client = monitor.get_client('master1');
+                master_client.failover_timeout = 20000;
+                done();
+            });
+            monitor.sync();
         });
     });
 
@@ -65,22 +92,29 @@ describe('MasterClient', function() {
     });
 
     var executed_commands = 0;
+
     describe('In failsafe state', function() {
+        var test1ran = false;
+        var test2ran = false;
+        var master_client;
+
         before(function(done) {
-            master_client = monitor.get_client('master1');
-            master_client.on('+failsafe', done);
+            master_client = monitor.get_client('master0');
+            master_client.once('+failsafe', done);
             master_client.enter_failsafe_state();
+        });
+        after(function(done) {
+            master_client.on('-failsafe', done);
+            master_client.exit_failsafe_state({host: 'localhost', port: '6380'});
         });
         this.timeout(10000);
         it('Queues write commands', function() {
-            master_client.hset(['x', '0', '0'], execute_command);
-            master_client.hset(['x', '1', '1'], execute_command);
-            master_client.hset(['x', '2', '2'], execute_command);
+            master_client.hset(['x', '0', '0'], cb);
+            master_client.hset(['x', '1', '1'], cb);
+            master_client.hset(['x', '2', '2'], cb);
 
-            function execute_command(error) {
-                if (!error) executed_commands++;
-            }
-            (master_client.cq.queue.length >= 3).should.be.true;
+            master_client.cq.queue.length.should.eql(3);
+            function cb(){executed_commands++};
         });
         it('Executes reads on slave instance', function(done) {
             master_client.failsafe_state.should.eql('w');
@@ -92,19 +126,17 @@ describe('MasterClient', function() {
         });
     });
     describe('Returning to normal operation', function() {
-        var new_master_config = monitor.masters['master1'];
-        before(function(done) {
-            master_client.on('-failsafe', done);
-            master_client.exit_failsafe_state({host: 'localhost', port: '6380'});
+        var master_client;
+        before(function() {
+            master_client = monitor.get_client('master0');
         });
         it('has executed all non-expired commands in queue', function(done) {
             (master_client.failsafe_state == undefined).should.be.true;
             this.timeout(5000);
-            setTimeout( function() {
                 // THE FUCKING COMMAND CALLBACKS ARE NOT FIREING
                 executed_commands.should.eql(3);
                 done();
-            }, 4000);
+            //}, 4000);
         });
         it('writes to new master', function(done) {
             master_client.hset(['x', '3', '3'], function(err, response) {
