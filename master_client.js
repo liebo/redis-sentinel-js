@@ -67,8 +67,8 @@ MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
         this.connect_to_redis_instance( slave.port, slave.ip );
         this.ping( function(error) {
             if (error) return self.connect_to_valid_slave(num_trials + 1, next);
-            self.failsafe_state = 'w';
-            next();
+            //self.failsafe_state = 'w';
+            else next();
         });
     } else {
         this.failsafe_state = 'rw';
