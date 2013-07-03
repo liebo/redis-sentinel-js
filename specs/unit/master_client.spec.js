@@ -1,4 +1,5 @@
 require('should');
+require('../../logger.js').squelch();
 redis_sentinel = require('../../index.js');
 var MonitorStub = require('../stubs/monitor.stub.js');
 

@@ -1,8 +1,11 @@
 require('should');
-redis_sentinel = require('../../index.js');
+require('../../logger.js').squelch();
 var MonitorStub = require('../stubs/monitor.stub.js');
 
 describe('Monitor', function() {
+
+    it('should emit all_down if it looses connection to sentinels', function(){});
+    it('should select a new sentinel when the current sentienl client errors', function(){});
 
     describe('#get_client()', function() {
         var monitor;
@@ -38,7 +41,7 @@ describe('Monitor', function() {
             monitor.sync();
         });
 
-        it('Should select the first sentinel that responds to a ping', function() {
+        it('Should select the first sentinel it can connect to', function() {
             monitor.sentinel_client.host.should.equal(monitor.sentinels[0].host);
             monitor.sentinel_client.port.should.equal(monitor.sentinels[0].port);
         });
@@ -72,5 +75,24 @@ describe('Monitor', function() {
 
     describe('#subscribe_to_sentinel()', function() {
         it('Should set listeners to pubsub of the given sentinel',function(){});
+
+        describe('#on_sub_down', function(){});
+        describe('#on_sub_up', function(){});
+        describe('#on_new_sentinel', function(){});
+        describe('#on_new_slave', function(){});
+        describe('#on_switch_master', function(){});
+        describe('#on_reboot_instance', function(){});
+        
+    });
+    describe('PubSub', function() {
+        it('should check SUBASCRIPTION_HANDLES for handling specific messages', function(){});
+        /*
+        it('+subdown', function(){});
+        it('-subdown', function(){});
+        it('+sentinel', function(){});
+        it('+slave', function(){});
+        it('+switch_master', function(){});
+        it('+reboot', function(){});
+        */
     });
 });
