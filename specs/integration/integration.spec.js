@@ -133,10 +133,11 @@ describe('MasterClient', function() {
         it('has executed all non-expired commands in queue', function(done) {
             (master_client.failsafe_state == undefined).should.be.true;
             this.timeout(5000);
+            setTimeout(function(){
                 // THE FUCKING COMMAND CALLBACKS ARE NOT FIREING
                 executed_commands.should.eql(3);
                 done();
-            //}, 4000);
+            }, 4000);
         });
         it('writes to new master', function(done) {
             master_client.hset(['x', '3', '3'], function(err, response) {
