@@ -1,5 +1,6 @@
 
 var redis = require('redis');
+var logger = require('./logger.js');
 
 module.exports = CommandQueue;
 
@@ -27,6 +28,7 @@ function CommandQueue(client) {
 CommandQueue.prototype.__proto__ = redis.Multi.prototype;
 
 CommandQueue.prototype.exec = function() {
+    logger.debug('Clearing queued commands for master client: '+this.client.name);
     this.should_clear_commands = false;
     if ( this.queue.length ) {
         var args = this.queue.shift();
@@ -66,10 +68,13 @@ CommandQueue.prototype.expire_queue_daemon = function() {
  */
 CommandQueue.prototype.clear_expired_commands_immediately = function() {
     var now = (new Date).getTime();
+    var num_commands_expired = 0;
     while ( this.queue.length > 0 && this.queue.oldest_timestamp() < now && this.should_clear_commands ) {
         var args = this.queue.shift();
+        num_commands_expired++;
         if (typeof args[args.length-2] == 'function') args[args.length-2]( command_expired_error() ); // call callback with an error
     }
+    logger.debug('Expired '+num_commands_expired+' for master client: '+this.client.name);
     if (!this.queue.length) this.should_clear_commands = false;
 };
 

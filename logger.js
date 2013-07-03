@@ -19,7 +19,7 @@ var mutant_logger = {
     // declare fallbacks.  Using functions right now, may be cleaner to use object.defineProperty...
     debug: function() {
                if (this.logger.debug) return this.logger.debug.apply(this.logger, arguments);
-               else this.info.appy(this, arguments);
+               else this.info.apply(this, arguments);
            },
     squelch: function() {
                  if (this.last_logger) return;

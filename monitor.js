@@ -4,8 +4,10 @@ var net = require("net");
 var MasterClient = require("./master_client.js");
 var redis = require("redis");
 var _ = require("underscore");
+var logger = require('./logger.js');
 
 module.exports = Monitor;
+Monitor.setLogger = logger.setLogger.bind(logger);
 
 /**
  *  The abstract client to the sentinel cluster.  Monitors sentinels
@@ -40,6 +42,7 @@ function Monitor( options ) {
     this.current_sentinel = null;
     this.current_subscription = null;
 
+    this.sentinel_connection_trials = 0;
     this.clusters_expected = 0;
     this.clusters_loaded = 0;
 
@@ -50,7 +53,7 @@ function Monitor( options ) {
 
     // Connects to a random sentinel. TODO: robustness;
     //var sentinel_to_connect_to = parseInt(Math.random() * settings.hosts.length);
-    this.sentinel_client = this.connect_to_sentinel(0);
+    //this.sentinel_client = this.connect_to_sentinel(0);
 
     //**** EVENTS ****//
     this.on('sentinel_selected', this.load_master_list);
@@ -81,6 +84,7 @@ Monitor.prototype.get_client = function(master_name) {
     if (mc) return mc;
 
     var config = this.masters[master_name];
+    // Do we really want to throw an error here?
     if (!config) throw new Error("Sentinels cannot find master: " + master_name);
 
     var port = parseInt(config.port);
@@ -103,24 +107,31 @@ Monitor.prototype.create_master_client = function(master_name, port, host, slave
  * Sets the current sentinel to the first active sentinel provided by
  * the options argument.
  */
-Monitor.prototype.select_current_sentinel = function(num_trials) {
-    var self = this;
-
-    num_trials = num_trials || 0;
-    if (num_trials >= this.sentinels.length) this.all_sentinels_down();
-
+Monitor.prototype.select_current_sentinel = function() {
     if (!this.sentinel_client) this.connect_to_sentinel(0);
-
-    this.sentinel_client.ping( function( error ) {
-        if (!error) {
-            self.subscribe_to_sentinel(self.current_sentinel);
-            self.sentinel_selected();
-            return;
-        }
-        var new_sentinel_index = (self.get_current_sentinel_index() + 1) % self.sentinels.length;
-        self.connect_to_sentinel(new_sentinel_index);
-        self.select_current_sentinel(num_trials + 1);
-    });
+    if (this.sentinel_client.connected) return;
+    // TODO: may be able to bubble this event up to the sentinel
+    // listing on sentinel error and connect events could greatly
+    // simplify this flow
+    this.sentinel_client.once('connect', onconnect.bind(this));
+    this.sentinel_client.once('error', onerror.bind(this));
+};
+function onconnect() {
+    logger.unsquelch();
+    logger.info('Connected to sentinel at '+this.sentinel_client.host+':'+this.sentinel_client.port);
+    this.sentinel_connection_trials = 0;
+    this.subscribe_to_sentinel(this.current_sentinel);
+    this.sentinel_selected();
+};
+function onerror() {
+    var new_sentinel_index = (this.get_current_sentinel_index() + 1) % this.sentinels.length;
+    if (this.sentinel_connection_trials >= this.sentinels.length) {
+        this.all_sentinels_down();
+    } else {
+        this.connect_to_sentinel(new_sentinel_index);
+        this.sentinel_connection_trials++;
+        this.select_current_sentinel();
+    }
 };
 
 Monitor.prototype.connect_to_sentinel = function(index) {
@@ -128,8 +139,9 @@ Monitor.prototype.connect_to_sentinel = function(index) {
         port = config.port,
         host = config.host;
     this.current_sentinel = config;
-    this.sentinel_client = redis.createClient(port, host);
-    return this.sentinel_client;
+    //delete this.sentinel_client;
+    this.sentinel_client = redis.createClient(port, host)
+        .on('error', function(e){logger.error(e.message)});
 }
 
 Monitor.prototype.get_current_sentinel_index = function() {
@@ -152,7 +164,9 @@ Monitor.prototype.get_sentinel_index = function(port, host) {
 Monitor.prototype.subscribe_to_sentinel = function(sentinel_client) {
     delete this.current_subscription;
 
-    this.current_subscription = redis.createClient(sentinel_client.port, sentinel_client.host);
+    this.current_subscription = redis.createClient(sentinel_client.port, sentinel_client.host)
+        .on('error', function(e){logger.error(e.message)});
+    logger.info(this.current_subscription._events);
     this.current_subscription.psubscribe('*');
     //sentinel.on('error', function(){});
     //sentinel.on('end', function(){});
@@ -202,8 +216,18 @@ Monitor.prototype.cluster_config_loaded = function() {
 
 /**** Event emiter wrapper functions ****/
 Monitor.prototype.all_sentinels_down = function() {
+    logger.warn('ALL SENTINELS DOWN');
+    logger.squelch();
+    setTimeout( function() {
+        logger.forceInfo('Retrying sentinel connections');
+        this.sentinel_connection_trials = 0;
+        this.connect_to_sentinel(0);
+        this.select_current_sentinel();
+    }.bind(this), 5000);
     this.emit('all_down');
 };
+// right now these are extraneous in case someone wanted to listen for
+// individual load events. May not necessarily want that.
 Monitor.prototype.master_config_loaded = function(master_name) {
     this.emit('master_config_loaded', master_name);
 };

@@ -1,10 +1,10 @@
 
 var net = require('net');
 var redis = require('redis');
+var logger = require('./logger.js');
 var CommandQueue = require('./command_queue.js');
 
 module.exports = MasterClient;
-// Since this is an eventer, maybe use events to determine whether it enters failsafe
 
 /**
  * A redis cluster abstraction which is initialized as a connection to a master instance.
@@ -25,7 +25,8 @@ function MasterClient( master_name, master_port, master_host, slaves, timeout ) 
 
     var net_client = net.createConnection( master_port, master_host );
     redis.RedisClient.call( this, net_client );
-    this.on('end', function() {
+    this.on('error', function(e) {
+        logger.error(e.message);
         this.enter_failsafe_state();
     });
 
@@ -35,43 +36,54 @@ MasterClient.prototype.__proto__ = redis.RedisClient.prototype;
 
 MasterClient.prototype.enter_failsafe_state = function(next) {
     next = next || none;
-    if (this.cq) return;
+    if (this.cq) return next();
+    logger.warn('Master client: '+this.name+' entering failsafe');
     this.generate_command_queue();
-    this.connect_to_valid_slave(next);
+    this.connect_to_valid_slave(0, next);
     this.emit('+failsafe');
 };
 
 MasterClient.prototype.exit_failsafe_state = function(new_master_config) {
     if (!this.cq) return;
     delete this.failsafe_state;
+    logger.info('Master client '+this.name+' exiting failsafe');
     this.connect_to_redis_instance( new_master_config.port, new_master_config.host );
     this.once( 'connect', function() {
+        logger.info(
+            'Master client: '+this.name+' connected to '+new_master_config.host+':'+new_master_config.port
+        );
         this.consume_command_queue();
         this.emit('-failsafe');
     });
 };
 
 MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
-    var self = this;
-    // TODO: start failsafe state with rw and selectively consume reads if we can connect to a valid slave
     this.failsafe_state = 'w';
-    if (typeof num_trials == 'function') {
-        next = num_trials;
-        num_trials = 0;
-    }
-    num_trials = num_trials || 0;
 
     // arbitrary upper bound chosen to account for slaves being altered while fallback is taking place
     if (num_trials < this.slaves.length + 3) {
-        var slave = this.slaves[num_trials % this.slaves.length];
-        this.connect_to_redis_instance( slave.port, slave.ip );
-        this.ping( function(error) {
-            if (error) return self.connect_to_valid_slave(num_trials + 1, next);
-            //self.failsafe_state = 'w';
-            else next();
-        });
+        this._connect_to_slave(num_trials, next);
     } else {
         this.failsafe_state = 'rw';
+        next();
+    }
+};
+
+MasterClient.prototype._connect_to_slave = function (num_trials, next) {
+    var slave_index = num_trials % (this.slaves.length || 1);
+    var slave = this.slaves[slave_index];
+    if(!slave) return this.connect_to_valid_slave(num_trials + 1, next);
+    this.connect_to_redis_instance( slave.port, slave.ip );
+    this.once('error', on_error);
+    this.once('connect', on_connect);
+    function on_error() {
+        logger.warn('Master client: '+this.name+' failed to connect to slave: '+slave.ip+':'+slave.port);
+        this.removeListener('connect', on_connect);
+        this.connect_to_valid_slave(num_trials + 1, next);
+    }
+    function on_connect() {
+        logger.info('Master client: '+this.name+' connected to slave: '+slave.ip+':'+slave.port);
+        this.removeListener('error', on_error);
         next();
     }
 };
@@ -87,10 +99,12 @@ MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
  */
 MasterClient.prototype.connect_to_redis_instance = function( port, host ) {
     var self = this;
-    this.options = {no_ready_check: true};
+    //this.options = {no_ready_check: true};
     this.stream.removeAllListeners();
     this.port = port;
     this.host = host;
+    this.ready = false;
+    this.connected = false;
     this.stream = net.createConnection(port, host);
 
     // add handles to the new stream necessary to reconnect
