@@ -72,7 +72,6 @@ describe('MasterClient', function() {
         it('Should be connected to a valid slave', function() {
             var connected_to_slave = (master_client.host == 'facebook.com' ||
             master_client.host == 'twitter.com');
-            console.log(master_client.host, master_client.port);
             connected_to_slave.should.be.true;
         });
         it('Should send read commands to command queue if no slaves are available', function() {

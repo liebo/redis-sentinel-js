@@ -3,9 +3,7 @@ var silent_logger = {
     info: silent,
     warn: silent,
     error: silent
-}
-
-function silent() {};
+};
 
 var mutant_logger = {
     setLogger: function(logger) {
@@ -24,7 +22,7 @@ var mutant_logger = {
     squelch: function() {
                  if (this.last_logger) return;
                  var last_logger = this.getLogger();
-                 this.setLogger(silent_logger);
+                 this.setLogger(this.squelchLogger);
                  this.last_logger = last_logger;
              },
     unsquelch: function() {
@@ -35,10 +33,17 @@ var mutant_logger = {
                    else this.info.apply(this, arguments);
                },
     silence: function() {
-                 delete this.lastLogger;
-                 this.setLogger(silent_logger);
-             }
+             this.setLogger(this.silentLogger);
+         },
+    setDefaultLogger: function() {
+        this.setLogger(this.defaultLogger);
+    },
+    silentLogger: silent_logger,
+    squelchLogger: silent_logger,
+    defaultLogger: console
 };
+
+function silent() {};
 
 // Default logger is console
 mutant_logger.setLogger(console);
