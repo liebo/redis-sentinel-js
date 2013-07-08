@@ -1,14 +1,14 @@
 require('should');
-require('../../logger.js').squelch();
-redis_sentinel = require('../../index.js');
+require('../../logger.js').silence();
+//redis_sentinel = require('../../index.js');
 var MonitorStub = require('../stubs/monitor.stub.js');
-
-var monitor = new MonitorStub();
 
 describe('MasterClient', function() {
     describe('On Initialization', function() {
         var master_client;
+        var monitor;
         beforeEach(function(done) {
+            monitor = new MonitorStub();
             monitor.once('synced', function() {
                 master_client = monitor.get_client('mymaster');
                 done();
@@ -21,25 +21,22 @@ describe('MasterClient', function() {
             (master_client.cq === undefined).should.be.true;
         });
 
-        it('Should have a slave array which always references the corresponding slave array on the Monitor', function(done) {
+        it('Should have a slave array which always references the corresponding slave array on the Monitor', function() {
             master_client.slaves.should.equal(monitor.slaves[master_client.name]);
-            monitor.once('synced', function() {
-                master_client.slaves.should.equal(monitor.slaves[master_client.name]);
-                done();
-            });
-            monitor.sync();
         });
     });
 
     describe('#[redis command]', function() {
         var master_client;
+        var monitor;
         beforeEach(function(done) {
-            if (!monitor.synced) monitor.once('synced', set_test_client);
-            else set_test_client();
+            monitor = new MonitorStub();
+            monitor.once('synced', set_test_client);
             function set_test_client() {
                 master_client = monitor.get_client('mymaster');
                 done();
             }
+            monitor.sync();
         });
 
         it('Should put cient in failsafe mode on failure', function(done) {
@@ -52,7 +49,7 @@ describe('MasterClient', function() {
         var monitor2 = new MonitorStub();
         monitor2.sync();
         var master_client;
-        var slaveless_master;;
+        var slaveless_master;
         beforeEach(function(done) {
             if (!monitor2.synced) monitor2.once('synced', set_test_clients);
             else set_test_clients();
@@ -87,14 +84,18 @@ describe('MasterClient', function() {
         });
     });
     describe('Exiting failsafe state', function() {
+        var monitor;
         var master_client;
         beforeEach(function(done) {
-            if (monitor.synced) set_test_client();
-            else monitor.once('synced', set_test_client);
+            monitor = new MonitorStub();
+            monitor.once('synced', set_test_client);
             function set_test_client() {
                 master_client = monitor.get_client('mymaster');
-                done();
+                master_client.once('+failsafe', done);
+                master_client.enter_failsafe_state();
+                //done();
             }
+            monitor.sync();
         });
 
         it('Should stop queuing commands', function(done) {

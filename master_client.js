@@ -19,6 +19,8 @@ module.exports = MasterClient;
  */
 function MasterClient( master_name, master_port, master_host, slaves, timeout ) {
 
+    if( !arguments.length ) return;
+
     this.name = master_name;
     this.failover_timeout = timeout || 5000;
     this.slaves = slaves;

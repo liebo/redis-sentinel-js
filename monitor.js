@@ -42,6 +42,17 @@ function Monitor( options ) {
     this.current_sentinel = null;
     this.current_subscription = null;
 
+    this.SUBSCRIPTION_HANDLES = {
+        '+sdown': this.on_sub_down.bind(this),
+        '-sdown': this.on_sub_up.bind(this),
+        '+odown': this.on_obj_down.bind(this),
+        '-odown': this.on_obj_up.bind(this),
+        '+sentinel': this.on_new_sentinel.bind(this),
+        '+slave': this.on_new_slave.bind(this),
+        '+switch-master': this.on_switch_master.bind(this),
+        '+reboot': this.on_reboot_instance.bind(this)
+    };
+
     this.sentinel_connection_trials = 0;
     this.clusters_expected = 0;
     this.clusters_loaded = 0;
@@ -139,7 +150,6 @@ Monitor.prototype.connect_to_sentinel = function(index) {
         port = config.port,
         host = config.host;
     this.current_sentinel = config;
-    //delete this.sentinel_client;
     this.sentinel_client = redis.createClient(port, host)
         .on('error', function(e){logger.error(e.message)});
 }
@@ -149,13 +159,14 @@ Monitor.prototype.get_current_sentinel_index = function() {
     return this.get_sentinel_index(cs.port, cs.host);
 };
 Monitor.prototype.get_sentinel_index = function(port, host) {
-    var index = -1;
-    this.sentinels.forEach(function(sentinel, s_index) {
-        if (sentinel.port == port && sentinel.host == host) index = s_index;
-    })
-    return index;
+    return get_client_index(port, host, this.sentinels);
 }
 
+Monitor.prototype.add_sentinel = function(port, host, skip_check_if_exists) {
+    if ( skip_check_if_exists || !(1+this.get_sentinel_index(port, host)) ) {
+        this.sentinels.push({port: port, host: host});
+    }
+}
 /**
  *  Subscribes to the given sentinel's pubsub events.
  *
@@ -208,6 +219,20 @@ function handle_slave_list_response(master_name, err, response) {
     this.cluster_ready(master_name);
 }
 
+Monitor.prototype.add_slave = function(port, host, master_name, skip_check_if_exists) {
+    if ( skip_check_if_exists || !(1+this.get_slave_index(port, host, master_name)) ) {
+        this.slaves[master_name].push({port: port, host: host});
+    }
+}
+Monitor.prototype.remove_slave = function(port, host, master_name) {
+    var slave_index = this.get_slave_index(port, host, master_name);
+    if (slave_index + 1) this.slaves[master_name].splice(slave_index, 1);
+}
+Monitor.prototype.get_slave_index = function(port, host, master_name) {
+    return get_client_index(port, host, this.slaves[master_name]);
+};
+
+
 Monitor.prototype.cluster_config_loaded = function() {
     this.clusters_loaded++;
     if (this.clusters_loaded == this.clusters_expected) this.sync_complete();
@@ -229,33 +254,41 @@ Monitor.prototype.all_sentinels_down = function() {
 // right now these are extraneous in case someone wanted to listen for
 // individual load events. May not necessarily want that.
 Monitor.prototype.master_config_loaded = function(master_name) {
+    logger.debug('Found master: '+master_name);
     this.emit('master_config_loaded', master_name);
 };
 Monitor.prototype.cluster_ready = function(master_name) {
+    logger.debug('Loaded cluster: '+master_name);
     this.emit('cluster_ready', master_name);
 };
 Monitor.prototype.sync_complete = function() {
+    logger.debug('Synced with sentinel');
     this.synced = true;
     this.emit('synced');
 };
 Monitor.prototype.sentinel_selected = function() {
+    logger.debug('Selected sentinel');
     this.emit('sentinel_selected');
 };
 
-/**** Recovery Event Handlers ****/
+/**** PubSub Event Handlers ****/
 Monitor.prototype.on_obj_down = function(info) {
-    if (info.type == 'master') this.get_client(info.name).enter_failsafe_state();
-    else {
-        // TODO: handle sentinels and slaves--nothing to do here yet
-        // if save is down, remove it from the list of configs. If sentinel is down, do the same
+    logger.info('Sentinel reports '+info.type+' '+info.name+' is down');
+    if (info.type == 'master' && this.master_clients[info.name]) 
+        this.get_client(info.name).enter_failsafe_state();
+    else if (info.type == 'slave') {
+        this.remove_slave(info.port, info.host, info.master_name);
     }
 }
 
 Monitor.prototype.on_obj_up = function(info) {
-    if (info.type == 'master') this.get_client(info.name).exit_failsafe_state();
-    else {
-        // TODO: handle sentinels and slaves--nothing to do here yet
-    }
+    logger.info('Sentinel reports '+info.type+' '+info.name+' is up');
+    if (info.type == 'master' && this.master_clients[info.name]) 
+        this.get_client(info.name).exit_failsafe_state(info);
+    else if (info.type == 'sentinel')
+        this.add_sentinel(info.port, info.host);
+    else if (info.type == 'slave')
+        this.add_slave(info.port, info.host, info.master_name);
 }
 
 // change these for different behavior on +-subdown
@@ -267,33 +300,23 @@ Monitor.prototype.on_sub_up = function(info) {
 }
 
 Monitor.prototype.on_new_slave = function(info) {
-    this.load_slave_list(info.master_name);
+    //this.load_slave_list(info.master_name);
+    this.add_slave(info.port, info.host, info.master_name);
 }
 
 Monitor.prototype.on_new_sentinel = function(info) {
     this.add_sentinel(info.port, info.host);
 }
 
-Monitor.prototype.on_reboot_instance = function(info) {}
-
-Monitor.prototype.add_sentinel = function(port, host, skip_check_if_exists) {
-    if ( skip_check_if_exists || !(1+this.get_sentinel_index(port, host)) ) {
-        this.sentinels.push({port: port, host: host});
-    }
+Monitor.prototype.on_reboot_instance = function(info) {
+    //TODO: may not actually need this one
+    logger.debug('reboot instance args: ' + info.toString());
 }
 
-Monitor.prototype.on_switch_master = function(){}
-
-Monitor.prototype.SUBSCRIPTION_HANDLES = {
-    '+sdown': this.on_sub_down,
-    '-sdown': this.on_sub_up,
-    '+odown': this.on_obj_down,
-    '-odown': this.on_obj_up,
-    '+sentinel': this.on_new_sentinel,
-    '+slave': this.on_new_slave,
-    '+switch-master': this.on_switch_master,
-    '+reboot': this.on_reboot_instance
-};
+Monitor.prototype.on_switch_master = function(debug){
+    // TODO: may not actually need this one
+    logger.debug('switch master args: ' + info.toString());
+}
 
 /**** Utility Functions ****/
 /**
@@ -303,10 +326,11 @@ Monitor.prototype.SUBSCRIPTION_HANDLES = {
  */
 function handle_sentinel_message(pattern, channel, message) {
     if ( !(message && typeof message.data == 'string') ) return;
+    logger.debug('Handling pub/sub message: '+channel+' '+message);
 
     var handler = this.SUBSCRIPTION_HANDLES[channel];
     if ( typeof handler != 'function' ) return;
-    handler( parse_instance_info(message['data']) );
+    handler( parse_instance_info(message.data) );
 }
 
 /**
@@ -316,7 +340,7 @@ function handle_sentinel_message(pattern, channel, message) {
  *  @return {Object} The object hash mapping the values to what they represent on a redis instance.
  */
 function parse_instance_info(infoStr) {
-    var tokens = infoStr.split();
+    var tokens = infoStr.split(' ');
     var info = {
         type: tokens[0],
         name: tokens[1],
@@ -345,3 +369,10 @@ function unflatten_hash(arr) {
     return out;
 }
 
+function get_client_index(port, host, client_config_array) {
+    var index = -1;
+    client_config_array.forEach(function(client, c_index) {
+        if (client.port == port && (client.host || client.ip) == host) index = c_index;
+    })
+    return index;
+}

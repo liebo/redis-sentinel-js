@@ -1,5 +1,5 @@
 require('should');
-require('../../logger.js').squelch();
+require('../../logger.js').silence();
 var CommandQueue = require('../../command_queue.js');
 var client_stub = {
     failover_timeout: 350,

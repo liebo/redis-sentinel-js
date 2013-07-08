@@ -40,8 +40,8 @@ MonitorStub.prototype = Monitor.prototype;
 
 function stubOffSentinelClient(client) {
     client.send_command = function(command, args, cb) {
-        if (args[0] == 'masters') cb(false, stub_master_response);
-        else if (args[0] == 'slaves') cb(false, stub_slave_responses[args[1]]);
+        if (args[0] == 'masters') cb(false, stub_master_response.slice(0));
+        else if (args[0] == 'slaves') cb(false, stub_slave_responses[args[1]].slice(0));
         else if (typeof args[0] !== 'function') throw 'Error in stubbed sentinel command';
     };
     client.ping = function(cb) {

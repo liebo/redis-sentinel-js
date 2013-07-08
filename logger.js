@@ -33,7 +33,11 @@ var mutant_logger = {
     forceInfo: function() {
                    if (this.last_logger) this.last_logger.info.apply(this.last_logger, arguments);
                    else this.info.apply(this, arguments);
-               }
+               },
+    silence: function() {
+                 delete this.lastLogger;
+                 this.setLogger(silent_logger);
+             }
 };
 
 // Default logger is console
