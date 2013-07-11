@@ -18,7 +18,7 @@ slave and untill a new master has been elected by the sentinels.
 
 ### options
 
-options.sentinels* => ['localhost:26379', '127.0.0.1:26380', ...]
+options.hosts* => ['localhost:26379', '127.0.0.1:26380', ...]
 The addresses to the sentinels in this cluster
 
 options.timeout  => 5000
@@ -31,4 +31,4 @@ The timeout for write requests waiting for execution during failsafe state
     var mc = sentinel_monitor.get_client('mymaster');
     mc.set('x', 5, function(error, response){...} );
 
-Master clients extend the node redis client.
+Master clients are singletons which extend the node redis client.
