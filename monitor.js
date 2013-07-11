@@ -262,7 +262,7 @@ Monitor.prototype.cluster_ready = function(master_name) {
     this.emit('cluster_ready', master_name);
 };
 Monitor.prototype.sync_complete = function() {
-    logger.debug('Synced with sentinel');
+    logger.debug('Synced with sentinel '+this.current_sentinel.host+':'+this.current_sentinel.port);
     this.synced = true;
     this.emit('synced');
 };
