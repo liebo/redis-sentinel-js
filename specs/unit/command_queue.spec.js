@@ -25,13 +25,22 @@ describe( 'CommandQueue', function() {
             if (error) num_errors++;
         }
     });
-    it('executes commands when exec is called', function(done) {
+    it('executes commands when exec is called', function() {
         var cq = new CommandQueue(client_stub);
         cq.ping();
         cq.ping();
         cq.ping();
         cq.exec();
         (client_stub.num_commands_executed == 3 ).should.be.true;
-        done();
+    });
+    it('only executes read commands when execute_reads is called', function() {
+        var cq = new CommandQueue(client_stub);
+        cq.ping();
+        cq.ping();
+        cq.ping();
+        cq.set(['x', '5'], function(){});
+        cq.queue.length.should.eql(4);
+        cq.exec_reads();
+        cq.queue.length.should.eql(1);
     });
 });

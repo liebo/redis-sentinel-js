@@ -27,14 +27,21 @@ function MasterClient( master_name, master_port, master_host, slaves, timeout ) 
 
     var net_client = net.createConnection( master_port, master_host );
     redis.RedisClient.call( this, net_client );
-    this.on('error', function(e) {
-        logger.error(e.message);
-        this.enter_failsafe_state();
-    });
+    this.listen_for_errors();
 
 }
 
 MasterClient.prototype.__proto__ = redis.RedisClient.prototype;
+
+MasterClient.prototype.listen_for_errors = function() {
+    if (this._events && this._events.error && this._events.error.length) return;
+    this.on('error', function(e) {
+        logger.error(e.message);
+        this.enter_failsafe_state();
+        // send any commands waiting in the offline_queue
+        this.send_offline_queue();
+    });
+}
 
 MasterClient.prototype.enter_failsafe_state = function(next) {
     next = next || none;
@@ -60,13 +67,12 @@ MasterClient.prototype.exit_failsafe_state = function(new_master_config) {
 };
 
 MasterClient.prototype.connect_to_valid_slave = function(num_trials, next) {
-    this.failsafe_state = 'w';
+    this.failsafe_state = 'rw';
 
     // arbitrary upper bound chosen to account for slaves being altered while fallback is taking place
     if (num_trials < this.slaves.length + 3) {
         this._connect_to_slave(num_trials, next);
     } else {
-        this.failsafe_state = 'rw';
         next();
     }
 };
@@ -75,20 +81,30 @@ MasterClient.prototype._connect_to_slave = function (num_trials, next) {
     var slave_index = num_trials % (this.slaves.length || 1);
     var slave = this.slaves[slave_index];
     if(!slave) return this.connect_to_valid_slave(num_trials + 1, next);
+
     this.connect_to_redis_instance( slave.port, slave.ip );
     this.once('error', on_error);
     this.once('connect', on_connect);
     function on_error() {
-        logger.warn('Master client: '+this.name+' failed to connect to slave: '+slave.ip+':'+slave.port);
-        this.removeListener('connect', on_connect);
-        this.connect_to_valid_slave(num_trials + 1, next);
+        this.on_slave_error(slave, num_trials, next);
     }
     function on_connect() {
-        logger.info('Master client: '+this.name+' connected to slave: '+slave.ip+':'+slave.port);
-        this.removeListener('error', on_error);
-        next();
+        this.on_slave_connect(slave, num_trials, next);
     }
 };
+MasterClient.prototype.on_slave_error = function (slave, num_trials, next) {
+    logger.warn('Master client: '+this.name+' failed to connect to slave: '+slave.ip+':'+slave.port);
+    this.removeAllListeners('connect');
+    this.connect_to_valid_slave(num_trials + 1, next);
+}
+MasterClient.prototype.on_slave_connect = function (slave, num_trials, next) {
+    logger.info('Master client: '+this.name+' connected to slave: '+slave.ip+':'+slave.port);
+    this.removeAllListeners('error');
+    this.listen_for_errors();
+    this.failsafe_state = 'w';
+    this.cq.exec_reads();
+    next();
+}
 
 /**
  * Reconnect the MasterClient to the specified port/host combo.
@@ -123,6 +139,7 @@ MasterClient.prototype.connect_to_redis_instance = function( port, host ) {
 
 // Store the original send_command
 MasterClient.prototype.super_send_command = redis.RedisClient.prototype.send_command;
+
 // Create a new send_command with middleware to handle failures
 MasterClient.prototype.send_command = function(command, args, next, trials) {
     trials = trials || 0; // track number of retries
@@ -188,6 +205,7 @@ function none(){}
 /**
  * Returns true if the command would perform a write to redis
  */
+// TODO: use the command queue version of this instead
 function is_write_command(command) {
     return /(pop)|(set)|(del)/i.test(command);
 }

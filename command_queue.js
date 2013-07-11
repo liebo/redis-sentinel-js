@@ -10,7 +10,6 @@ function CommandQueue(client) {
     this.queue = [];
     this.client = client;
     this.queue.push = function(command_array) {
-
         command_array.push( (new Date()).getTime() + self.client.failover_timeout );
         self.queue[self.queue.length] = command_array;
 
@@ -28,24 +27,44 @@ function CommandQueue(client) {
 CommandQueue.prototype.__proto__ = redis.Multi.prototype;
 
 CommandQueue.prototype.exec = function() {
-    logger.debug('Clearing queued commands for master client: '+this.client.name);
     this.should_clear_commands = false;
-    if ( this.queue.length ) {
-        var args = this.queue.shift();
-        args.pop();
-        var command = args.shift();
-        var cb = args.pop();
-        if (command.toLowerCase() === 'hmset' && typeof args[1] === 'object') {
-            obj = args.pop();
-            Object.keys(obj).forEach(function (key) {
-                args.push(key);
-                args.push(obj[key]);
-            });
-        } else args = args[0];
-        this.client.send_command(command, args, cb);
-        this.exec();
-    }
+
+    if ( !this.queue.length ) return;
+    var args = this.queue.shift();
+    args.pop();
+    var command = args.shift();
+    var cb = args.pop();
+    if (command.toLowerCase() === 'hmset' && typeof args[1] === 'object') {
+        obj = args.pop();
+        Object.keys(obj).forEach(function (key) {
+            args.push(key);
+            args.push(obj[key]);
+        });
+    } else args = args[0];
+
+    this.client.send_command(command, args, cb);
+    this.exec();
 };
+
+CommandQueue.prototype.exec_reads = function(index) {
+    index = index || 0;
+    if (this.queue.length <= index) return;
+    if (this.is_write_command(this.queue[index][0]))
+        return this.exec_reads(index + 1);
+
+    var args = this.queue.splice(index, 1)[0];
+    args.pop();
+    var command = args.shift();
+    var cb = args.pop();
+
+    args = args[0];
+    this.client.send_command(command, args, cb);
+    this.exec_reads(index);
+}
+
+CommandQueue.prototype.is_write_command = function(command) {
+    return /(pop)|(set)|(del)/i.test(command);
+}
 
 CommandQueue.prototype.EXEC = CommandQueue.prototype.exec;
 
