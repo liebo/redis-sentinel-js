@@ -1,4 +1,3 @@
-
 var net = require('net');
 var redis = require('redis');
 var logger = require('./logger.js');
@@ -27,6 +26,8 @@ function MasterClient( master_name, master_port, master_host, slaves, timeout ) 
 
     var net_client = net.createConnection( master_port, master_host );
     redis.RedisClient.call( this, net_client );
+    this.host = master_host;
+    this.port = master_port;
     this.listen_for_errors();
 
 }
