@@ -57,7 +57,7 @@ function Monitor( options ) {
     this.clusters_expected = 0;
     this.clusters_loaded = 0;
 
-    for (var hosts_index in settings.hosts) {
+    for (var hosts_index = 0; hosts_index < settings.hosts.length; ++hosts_index) {
         var host_and_port = settings.hosts[hosts_index].split(':');
         this.add_sentinel(parseInt(host_and_port[1]), host_and_port[0], true);
     }
