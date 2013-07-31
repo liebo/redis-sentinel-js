@@ -39,7 +39,10 @@ MasterClient.prototype.onSync = function(master_port, master_host, slaves){
         if (this.cq)
             this.consume_command_queue();
     }else{
-        this.generate_command_queue();
+        if (this.cq)
+            this.emit('errorConfig');
+        else
+            this.generate_command_queue();
     }
 }
 
