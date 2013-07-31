@@ -22,17 +22,26 @@ function MasterClient( master_name, master_port, master_host, slaves, timeout ) 
 
     this.name = master_name;
     this.failover_timeout = timeout || 5000;
-    this.slaves = slaves;
-
-    var net_client = net.createConnection( master_port, master_host );
-    redis.RedisClient.call( this, net_client );
-    this.host = master_host;
-    this.port = master_port;
-    this.listen_for_errors();
-
+    
+    onSync(master_port, master_host, slaves);
 }
 
 MasterClient.prototype.__proto__ = redis.RedisClient.prototype;
+
+MasterClient.prototype.onSync = function(master_port, master_host, slaves){
+    if (master_host){
+        this.slaves = slaves;
+        var net_client = net.createConnection( master_port, master_host );
+        redis.RedisClient.call( this, net_client );
+        this.host = master_host;
+        this.port = master_port;
+        this.listen_for_errors();
+        if (this.cq)
+            this.consume_command_queue();
+    }else{
+        this.generate_command_queue();
+    }
+}
 
 MasterClient.prototype.listen_for_errors = function() {
     if (this._events && this._events.error && this._events.error.length) return;
