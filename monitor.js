@@ -93,6 +93,12 @@ Monitor.prototype.get_client = function(master_name) {
     var mc = this.master_clients[master_name];
 
     if (mc) return mc;
+    
+    if (!this.synced){
+        mc = this.create_master_client(master_name, null, null, null, failover_timeout);
+        this.master_clients[master_name] = mc;
+        return mc;
+    }
 
     var config = this.masters[master_name];
     // Do we really want to throw an error here?
@@ -264,6 +270,20 @@ Monitor.prototype.cluster_ready = function(master_name) {
 Monitor.prototype.sync_complete = function() {
     logger.debug('Synced with sentinel '+this.current_sentinel.host+':'+this.current_sentinel.port);
     this.synced = true;
+    for (var i = 0; i < this.master_clients.length; ++i){
+        var client = this.master_clients[i];
+        if (!client.host){
+            var config = this.masters[master_name];
+            if (!config) 
+                client.onSync(null, null, null);
+            else{
+                var port = parseInt(config.port);
+                var host = config.ip;
+                var slaves = this.slaves[master_name];
+                client.onSync(port, host, slaves);
+            }            
+        }
+    }
     this.emit('synced');
 };
 Monitor.prototype.sentinel_selected = function() {
